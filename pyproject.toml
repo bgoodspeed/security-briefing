@@ -1,0 +1,28 @@
+[project]
+name = "security-briefing"
+version = "0.1.0"
+description = "Pull transcripts of security podcasts and summarize them with an LLM."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=0.40.0",
+    "feedparser>=6.0.11",
+    "httpx>=0.28.0",
+    "openai>=1.50.0",
+    "python-dotenv>=1.0.1",
+    "rapidfuzz>=3.10.0",
+    "selectolax>=0.3.25",
+    "typer>=0.13.0",
+    "youtube-transcript-api>=0.6.3",
+    "yt-dlp>=2024.10.0",
+]
+
+[project.scripts]
+briefing = "security_briefing.cli:app"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
