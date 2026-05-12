@@ -61,6 +61,18 @@ class SecurityNowFetcher:
                 break
         return refs
 
+    def _synthetic_ref(self, ep_num: int | str) -> EpisodeRef:
+        """Build a ref for any episode by number; pub_date is unknown
+        for episodes outside the truncated RSS window."""
+        n = str(int(ep_num))
+        return EpisodeRef(
+            podcast_slug=self.slug,
+            episode_id=n,
+            title=f"SN {n}",
+            pub_date=datetime.now(timezone.utc),
+            source_url=f"https://www.grc.com/sn/sn-{n}.htm",
+        )
+
     def find_episode(
         self,
         *,
@@ -74,17 +86,30 @@ class SecurityNowFetcher:
                 raise LookupError("no episodes found in Security Now feed")
             return refs[0]
         if episode_id:
-            # Walk all entries (feed is bounded) for an exact match
+            target = str(episode_id).lstrip("0") or "0"
             for entry in self._parse_feed():
                 ref = self._entry_to_ref(entry)
-                if ref and ref.episode_id == str(episode_id).lstrip("0"):
+                if ref and ref.episode_id == target:
                     return ref
-                if ref and ref.episode_id == str(episode_id):
-                    return ref
-            raise LookupError(f"Security Now episode {episode_id} not in current feed")
+            # Outside the RSS window — synthesize. Fetch will 404 if no
+            # transcript exists for this number.
+            return self._synthetic_ref(target)
         if query:
             return fuzzy_pick(query, self.list_episodes(limit=200))
         raise ValueError("must specify latest=True, episode_id, or query")
+
+    def iter_all_refs(self) -> list[EpisodeRef]:
+        latest = self.list_episodes(limit=1)
+        if not latest:
+            raise LookupError("no Security Now episodes found")
+        n_latest = int(latest[0].episode_id)
+        # Build synthetic refs from 1 to latest. Real metadata for the
+        # most recent ~10 comes from RSS; older ones get title="SN N".
+        feed_refs = {r.episode_id: r for r in self.list_episodes(limit=50)}
+        return [
+            feed_refs.get(str(n)) or self._synthetic_ref(n)
+            for n in range(1, n_latest + 1)
+        ]
 
     def _fetch_transcript(self, ep_num: str) -> str:
         url = TRANSCRIPT_URL.format(n=ep_num)

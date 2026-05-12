@@ -66,6 +66,9 @@ class RiskyBusinessFetcher:
         videos = self._list_videos(limit)
         return [self._video_to_ref(v) for v in videos[:limit]]
 
+    def iter_all_refs(self) -> list[EpisodeRef]:
+        return self.list_episodes(limit=10_000)
+
     def find_episode(
         self,
         *,

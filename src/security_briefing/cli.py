@@ -78,6 +78,50 @@ def fetch_cmd(
     )
 
 
+@app.command("fetch-all")
+def fetch_all_cmd(
+    podcast: str = typer.Argument(..., help=f"Podcast slug. One of: {', '.join(all_slugs())}"),
+    delay: float = typer.Option(0.5, "--delay", help="Seconds to sleep between requests (be polite to upstream)."),
+    skip_existing: bool = typer.Option(True, "--skip-existing/--no-skip-existing", help="Skip episodes already on disk."),
+    reverse: bool = typer.Option(False, "--reverse", help="Iterate oldest-first instead of newest-first."),
+):
+    """Fetch every available episode for a podcast.
+
+    Continues past per-episode errors. Prints a final tally of saved /
+    skipped / failed.
+    """
+    import time
+
+    f = get_fetcher(podcast)
+    typer.echo(f"enumerating episodes for {f.display_name}…")
+    refs = f.iter_all_refs()
+    if reverse:
+        refs = list(reversed(refs))
+    typer.echo(f"  → {len(refs)} candidate episodes")
+
+    saved = skipped = failed = 0
+    for i, ref in enumerate(refs, start=1):
+        prefix = f"[{i:>4}/{len(refs)}] {ref.episode_id:>5}"
+        if skip_existing and storage.episode_exists(ref.podcast_slug, ref.episode_id):
+            typer.echo(f"{prefix} skip (cached): {ref.title[:80]}")
+            skipped += 1
+            continue
+        try:
+            ep = f.fetch(ref)
+            storage.save_episode(ep)
+            typer.echo(
+                f"{prefix} ok ({len(ep.transcript):>7,} chars, {ep.transcript_source}): {ref.title[:70]}"
+            )
+            saved += 1
+        except Exception as e:
+            typer.echo(f"{prefix} FAIL: {ref.title[:60]} — {e}", err=True)
+            failed += 1
+        if delay:
+            time.sleep(delay)
+
+    typer.echo(f"\n=== {f.display_name}: saved={saved} skipped={skipped} failed={failed} ===")
+
+
 @app.command("summarize")
 def summarize_cmd(
     podcast: str = typer.Argument(...),
@@ -104,6 +148,58 @@ def summarize_cmd(
         raise typer.Exit(1) from e
     typer.echo(f"summary → {path}\n")
     typer.echo(summary)
+
+
+@app.command("summarize-all")
+def summarize_all_cmd(
+    podcast: str = typer.Argument(..., help=f"Podcast slug. One of: {', '.join(all_slugs())}"),
+    backend: Optional[str] = typer.Option(None, "--backend", "-b"),
+    model: Optional[str] = typer.Option(None, "--model", "-m"),
+    delay: float = typer.Option(0.0, "--delay", help="Pause between calls (seconds)."),
+    force: bool = typer.Option(False, "--force"),
+):
+    """Summarize every episode on disk for a podcast. Skips cached summaries."""
+    from .summarize import run as run_summary
+
+    slug = get_fetcher(podcast).slug
+    base = storage.project_root() / slug
+    if not base.exists():
+        typer.echo(f"no episodes on disk for {slug}", err=True)
+        raise typer.Exit(1)
+
+    eps_ids = sorted(
+        (p.name for p in base.iterdir() if (p / "transcript.txt").exists()),
+        key=lambda x: (-_int_or_zero(x), x),
+    )
+    typer.echo(f"summarizing {len(eps_ids)} episodes of {slug}…")
+
+    import time
+    saved = skipped = failed = 0
+    for i, eid in enumerate(eps_ids, 1):
+        prefix = f"[{i:>4}/{len(eps_ids)}] {eid:>5}"
+        try:
+            ep = storage.load_episode(slug, eid)
+            if not ep.transcript.strip():
+                typer.echo(f"{prefix} skip (empty transcript)")
+                skipped += 1
+                continue
+            path, _ = run_summary(ep, backend=backend, model=model, force=force)
+            typer.echo(f"{prefix} ok → {path.name}")
+            saved += 1
+        except Exception as e:
+            typer.echo(f"{prefix} FAIL — {e}", err=True)
+            failed += 1
+        if delay:
+            time.sleep(delay)
+
+    typer.echo(f"\n=== {slug}: saved={saved} skipped={skipped} failed={failed} ===")
+
+
+def _int_or_zero(s: str) -> int:
+    try:
+        return int(s)
+    except (TypeError, ValueError):
+        return 0
 
 
 @app.command("brief")

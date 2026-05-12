@@ -60,3 +60,12 @@ class Fetcher(Protocol):
     ) -> EpisodeRef: ...
 
     def fetch(self, ref: EpisodeRef) -> Episode: ...
+
+    def iter_all_refs(self) -> list[EpisodeRef]:
+        """Return refs for every episode known to this fetcher.
+
+        Default implementation just asks list_episodes for a large page;
+        override when the upstream feed truncates (e.g., Security Now's
+        RSS only carries ~10 entries).
+        """
+        ...

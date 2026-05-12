@@ -58,18 +58,31 @@ class CriticalThinkingFetcher:
     def _build_url_index(self) -> dict[str, str]:
         if self._url_index is not None:
             return self._url_index
-        with http_client() as client:
-            r = client.get(EPISODES_INDEX)
-            r.raise_for_status()
-        tree = HTMLParser(r.text)
         index: dict[str, str] = {}
-        for a in tree.css("a[href]"):
-            href = a.attributes.get("href") or ""
-            m = re.match(r"^/?(episode-(\d{1,5})-[a-z0-9\-]+)/?$", href)
-            if m:
-                ep_num = m.group(2)
-                full = href if href.startswith("http") else f"{SITE_BASE}/{m.group(1)}/"
-                index.setdefault(ep_num, full)
+        with http_client() as client:
+            page = 1
+            while True:
+                url = EPISODES_INDEX if page == 1 else f"{EPISODES_INDEX}?page={page}"
+                r = client.get(url)
+                if r.status_code == 404:
+                    break
+                r.raise_for_status()
+                tree = HTMLParser(r.text)
+                found_on_page = 0
+                for a in tree.css("a[href]"):
+                    href = a.attributes.get("href") or ""
+                    m = re.match(r"^/?(episode-(\d{1,5})-[a-z0-9\-]+)/?$", href)
+                    if m:
+                        ep_num = m.group(2)
+                        full = href if href.startswith("http") else f"{SITE_BASE}/{m.group(1)}/"
+                        if ep_num not in index:
+                            index[ep_num] = full
+                            found_on_page += 1
+                if found_on_page == 0:
+                    break
+                page += 1
+                if page > 30:  # safety stop
+                    break
         self._url_index = index
         return index
 
@@ -95,6 +108,9 @@ class CriticalThinkingFetcher:
             if len(refs) >= limit:
                 break
         return refs
+
+    def iter_all_refs(self) -> list[EpisodeRef]:
+        return self.list_episodes(limit=10_000)
 
     def find_episode(
         self,

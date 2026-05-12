@@ -60,6 +60,9 @@ class DarknetDiariesFetcher:
                 break
         return refs
 
+    def iter_all_refs(self) -> list[EpisodeRef]:
+        return self.list_episodes(limit=10_000)
+
     def find_episode(
         self,
         *,
